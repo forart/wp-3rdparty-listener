@@ -1,12 +1,12 @@
 <?php
 /**
- * Plugin Name: Github release listener
+ * Plugin Name: Release listener for GitHub
  * Description: Listens to a GitHub webhook and creates a new post every time a release is made.
- * Version: 1.1
+ * Version: 1.2
  * Author:  Piiu Pilt, Silktide
  * Author URI: http://www.silktide.com
  * License: GPLv2
- * Text Domain: github-release-listener
+ * Text Domain: release-listener-for-github
  */
 
 defined('ABSPATH') or die('No!');
@@ -32,22 +32,30 @@ function wgrl_new_release_handler()
     exit;
 }
 
-function wgrl_add_post($data)
-{
+function wgrl_add_post($data) {
     if (isset($data['action']) && isset($data['release'])) {
         global $wpdb;
+
+        // Verifica se esiste un post con lo stesso titolo associato alla release
+        $existing_post = get_page_by_title(wp_strip_all_tags($data['release']['name']), OBJECT, 'post');
+
+        if ($existing_post) {
+            return false; // Non creare un nuovo post
+        }
+        
         try {
-            $name = wp_strip_all_tags($data['release']['name']);
+            $repository_name = isset($data['repository']['full_name']) ? str_replace('forart/', '', $data['repository']['full_name']) : '';
+            $name = '<a href="https://github.com/' . esc_attr($data['repository']['full_name']) . '#readme" target="_blank">' . $repository_name . '</a> - ' . wp_strip_all_tags($data['release']['name']);         
             $name = $name != '' ? $name : $data['release']['tag_name'];
             $name = get_option('wgrl-title-prefix') != '' ? get_option('wgrl-title-prefix').' '.$name : $name;
             $new_post = array(
                 'post_title' => $name,
-                'post_content' => $data['release']['body'],
+                'post_content' => $data['release']['body'] . '<p><a href="https://github.com/' . esc_attr($data['repository']['full_name']) . '/releases/latest" target="_blank">► GitHub</a></p>',
                 'post_author' => get_option('wgrl-post-author'),
                 'post_status' => 'publish',
             );
             if (get_option('wgrl-custom-post-type')) {
-                $new_post['post_type'] = 'release';
+                $new_post['post_type'] = 'GitHub';
             }
             $post_id = wp_insert_post($new_post);
 
@@ -58,14 +66,16 @@ function wgrl_add_post($data)
             if (!get_option('wgrl-custom-post-type')) {
                 wp_set_object_terms($post_id, wgrl_get_custom_tag(), 'post_tag');
             }
+            return true;
         } catch (Exception $e) {
             return false;
         }
-        return true;
     }
     return false;
 }
 
+// Resto del codice rimane invariato...
+	
 add_shortcode('wgrl-changelog', 'wgrl_changelog');
 function wgrl_changelog($attributes)
 {
@@ -107,38 +117,6 @@ function wgrl_changelog($attributes)
     wp_reset_postdata();
 
     return $return;
-}
-
-add_shortcode('wgrl-latest', 'wgrl_latest');
-function wgrl_latest($attributes)
-{
-    $options = shortcode_atts(array(
-        'type' => 'zip-link',
-        'classes' => false
-    ), $attributes);
-
-    $query = wgrl_get_query(1);
-    if ($query->have_posts()) {
-        while ($query->have_posts()) {
-            $query->the_post();
-            $classString = $options['classes'] ? ' class="' . $options['classes'] . '"' : '';
-            switch ($options['type']) {
-                case 'title':
-                    return get_the_title();
-                case 'tag':
-                    return get_post_meta(get_the_id(), 'release_tag', true);
-                case 'zip-url':
-                    return get_post_meta(get_the_id(), 'download_zip', true);
-                case 'tar-url':
-                    return get_post_meta(get_the_id(), 'download_zip', true);
-                case 'zip-link':
-                    return '<a href="' . get_post_meta(get_the_id(), 'download_zip', true) . '"' . $classString . '>' . get_the_title() . '</a>';
-                case 'tar-link':
-                    return '<a href="' . get_post_meta(get_the_id(), 'download_tar', true) . '"' . $classString . '>' . get_the_title() . '</a>';
-            }
-        }
-    }
-    return '';
 }
 
 add_action('init', 'wgrl_add_custom_post_type');
@@ -193,7 +171,7 @@ function wgrl_get_query($limit)
         'posts_per_page' => $limit
     );
     if (get_option('wgrl-custom-post-type')) {
-        $args['post_type'] = 'release';
+        $args['post_type'] = 'Opensource';
     } else {
         $args['tag'] = wgrl_get_custom_tag();
     }
@@ -205,7 +183,7 @@ function wgrl_get_custom_tag()
     if (get_option('wgrl-tag-post') && get_option('wgrl-tag-post') != '') {
         return esc_attr(get_option('wgrl-tag-post'));
     } else {
-        return 'release';
+        return 'Opensource';
     }
 }
 
